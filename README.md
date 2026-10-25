@@ -48,7 +48,7 @@ curl -fsSL https://raw.githubusercontent.com/ZaMan0806/FloatingTodo/main/install
 
 ## 업데이트
 
-앱이 켜질 때와 하루에 한 번 GitHub 의 `main` 브랜치를 확인합니다.
+앱이 켜질 때, 한 시간마다, 패널을 열 때(10분에 한 번까지), 잠자기에서 깨어난 뒤 GitHub 의 `main` 브랜치를 확인합니다.
 새 버전이 있으면 버튼에 빨간 점이 생기고 패널 위쪽에 `업데이트` 버튼이 나타납니다.
 누르면 새 소스를 받아 빌드한 뒤 앱이 잠깐 꺼졌다가 다시 켜집니다. 할 일은 그대로 남아요.
 
