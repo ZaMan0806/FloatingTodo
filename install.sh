@@ -10,6 +10,8 @@ LABEL="com.zaman.floatingtodo"
 APPDIR="$HOME/Library/Application Support/FloatingTodo"
 BIN="$APPDIR/FloatingTodo"
 PLIST="$HOME/Library/LaunchAgents/$LABEL.plist"
+UPDATER="$LABEL.updater"
+UPDATER_PLIST="$HOME/Library/LaunchAgents/$UPDATER.plist"
 DOMAIN="gui/$(id -u)"
 
 say()  { printf '\033[1;34m==>\033[0m %s\n' "$1"; }
@@ -33,9 +35,12 @@ if [ -n "${BASH_SOURCE[0]:-}" ] && [ -f "${BASH_SOURCE[0]}" ]; then
 fi
 WORK="$(mktemp -d)"
 trap 'rm -rf "$WORK"' EXIT
+SHA=""   # 설치하는 커밋. 앱이 이 값과 GitHub 의 최신 커밋을 비교해 업데이트를 알려 줌
 if [ -z "$SRC" ]; then
-  say "소스 내려받는 중... ($REPO@$BRANCH)"
-  curl -fsSL "https://github.com/$REPO/archive/refs/heads/$BRANCH.tar.gz" \
+  SHA=$(git ls-remote "https://github.com/$REPO.git" "refs/heads/$BRANCH" 2>/dev/null | cut -f1 || true)
+  [[ "$SHA" =~ ^[0-9a-f]{40}$ ]] || SHA=""
+  say "소스 내려받는 중... ($REPO@${SHA:-$BRANCH})"
+  curl -fsSL "https://github.com/$REPO/archive/${SHA:-refs/heads/$BRANCH}.tar.gz" \
     | tar -xz -C "$WORK" --strip-components=1
   SRC="$WORK"
 fi
@@ -58,6 +63,32 @@ launchctl bootout "$DOMAIN/$LABEL" 2>/dev/null || true
 pkill -x FloatingTodo 2>/dev/null || true
 sleep 0.5
 cp "$WORK/FloatingTodo" "$BIN"
+# 직접 빌드한 경우엔 버전을 지워서 업데이트 알림이 뜨지 않게
+if [ -n "$SHA" ]; then echo "$SHA" > "$APPDIR/version"; else rm -f "$APPDIR/version"; fi
+
+# 앱의 '업데이트' 버튼이 실행하는 작업. 앱과 따로 돌아야 위에서 앱을 끌 때 같이 꺼지지 않음
+# (그 작업 안에서 이 스크립트가 돌고 있을 때는 자기 자신을 끄지 않도록 건너뜀)
+if [ -z "${FT_UPDATING:-}" ]; then
+  launchctl bootout "$DOMAIN/$UPDATER" 2>/dev/null || true
+  cat > "$UPDATER_PLIST" <<PLIST
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>Label</key><string>$UPDATER</string>
+  <key>ProgramArguments</key>
+  <array>
+    <string>/bin/bash</string>
+    <string>-c</string>
+    <string>exec >"\$0/update.log" 2>&amp;1; set -o pipefail; curl -fsSL "https://raw.githubusercontent.com/$REPO/$BRANCH/install.sh" | FT_UPDATING=1 bash || touch "\$0/update-failed"</string>
+    <string>$APPDIR</string>
+  </array>
+  <key>ProcessType</key><string>Interactive</string>
+</dict>
+</plist>
+PLIST
+  launchctl bootstrap "$DOMAIN" "$UPDATER_PLIST" 2>/dev/null || true
+fi
 
 # 로그인 시 자동 실행 (오류로 꺼지면 다시 켜고, 메뉴에서 '종료'하면 다음 로그인까지 꺼진 채로)
 cat > "$PLIST" <<PLIST

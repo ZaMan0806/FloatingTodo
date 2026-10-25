@@ -11,6 +11,7 @@ macOS 화면 위에 항상 떠 있는 버튼 하나로 할 일을 관리하는 �
 - 퍼스널 컬러 설정 (체크 표시와 버튼 색에 적용)
 - macOS 26 에서는 Liquid Glass 디자인
 - 패널 크기 조절, 로그인 시 자동 실행, 자동 저장
+- 새 버전이 올라오면 알려 주고 버튼 한 번으로 업데이트
 
 ## 설치
 
@@ -39,9 +40,19 @@ curl -fsSL https://raw.githubusercontent.com/ZaMan0806/FloatingTodo/main/install
 | 순서 바꾸기 | 왼쪽 `≡` 를 위아래로 끌기 |
 | 퍼스널 컬러 | 패널 위쪽 `⚙︎` |
 | 패널 크기 | 아래쪽 모서리 손잡이 끌기 |
+| 업데이트 | 패널 위쪽 `업데이트` 버튼, 또는 버튼 우클릭 → 업데이트 확인 |
 | 종료 | 버튼 우클릭 → 종료 (다음 로그인 때 다시 켜짐) |
 
 할 일은 `~/Library/Application Support/FloatingTodo/todos.json` 에 저장됩니다.
+
+## 업데이트
+
+앱이 켜질 때와 하루에 한 번 GitHub 의 `main` 브랜치를 확인합니다.
+새 버전이 있으면 버튼에 빨간 점이 생기고 패널 위쪽에 `업데이트` 버튼이 나타납니다.
+누르면 새 소스를 받아 빌드한 뒤 앱이 잠깐 꺼졌다가 다시 켜집니다. 할 일은 그대로 남아요.
+
+- 업데이트 기록: `~/Library/Application Support/FloatingTodo/update.log`
+- 직접 빌드(`./install.sh`)로 설치한 경우에는 업데이트 알림이 뜨지 않습니다.
 
 ## 삭제
 

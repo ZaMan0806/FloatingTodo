@@ -75,11 +75,13 @@ final class TodoStore: ObservableObject {
     let fileURL: URL
     private var saveTask: Task<Void, Never>?
 
+    // ~/Library/Application Support/FloatingTodo (실행 파일·할 일·버전 정보가 모두 여기에)
+    // (자동 실행 시 문서 폴더 접근 권한 문제를 피하기 위해 Application Support 사용)
+    nonisolated static let directory = FileManager.default.homeDirectoryForCurrentUser
+        .appendingPathComponent("Library/Application Support/FloatingTodo", isDirectory: true)
+
     init() {
-        // ~/Library/Application Support/FloatingTodo/todos.json 에 저장
-        // (자동 실행 시 문서 폴더 접근 권한 문제를 피하기 위해 Application Support 사용)
-        let dir = FileManager.default.homeDirectoryForCurrentUser
-            .appendingPathComponent("Library/Application Support/FloatingTodo", isDirectory: true)
+        let dir = Self.directory
         try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
         fileURL = dir.appendingPathComponent("todos.json")
         load()
@@ -143,6 +145,119 @@ final class TodoStore: ObservableObject {
         items[i].checkpoints.append(c)
         items[i].collapsed = false
         return c.id
+    }
+}
+
+// MARK: - 업데이트 (GitHub main 브랜치의 최신 커밋과 설치된 버전 비교)
+
+@MainActor
+final class Updater: ObservableObject {
+    enum Status: Equatable {
+        case idle               // 확인 전이거나 최신 버전
+        case available          // 새 버전 있음
+        case updating           // 설치 중 (성공하면 앱이 새 버전으로 다시 켜짐)
+        case failed(String)
+    }
+
+    enum CheckResult { case upToDate, available, unknownVersion, failed }
+
+    @Published var status: Status = .idle
+
+    static let repo = "ZaMan0806/FloatingTodo"
+    static let branch = "main"
+    private let jobLabel = "com.zaman.floatingtodo.updater"   // install.sh 가 등록하는 업데이트 작업
+    private let versionURL = TodoStore.directory.appendingPathComponent("version")
+    private let failedURL = TodoStore.directory.appendingPathComponent("update-failed")
+    let logURL = TodoStore.directory.appendingPathComponent("update.log")
+    private var timer: Timer?
+    private var watchTimer: Timer?
+
+    var needsAttention: Bool {
+        switch status {
+        case .available, .failed: return true
+        default: return false
+        }
+    }
+
+    /// 설치 명령어로 설치했을 때만 기록됨 (직접 빌드한 개발용은 없음)
+    var installedVersion: String? {
+        guard let s = try? String(contentsOf: versionURL, encoding: .utf8) else { return nil }
+        let v = s.trimmingCharacters(in: .whitespacesAndNewlines)
+        return v.isEmpty ? nil : v
+    }
+
+    /// 켜고 잠시 뒤 한 번, 그 뒤로 하루에 한 번 확인
+    func start() {
+        try? FileManager.default.removeItem(at: failedURL)
+        Task { [weak self] in
+            try? await Task.sleep(nanoseconds: 5_000_000_000)
+            await self?.check()
+        }
+        timer = Timer.scheduledTimer(withTimeInterval: 24 * 60 * 60, repeats: true) { [weak self] _ in
+            Task { @MainActor in await self?.check() }
+        }
+    }
+
+    @discardableResult
+    func check() async -> CheckResult {
+        guard let installed = installedVersion else { return .unknownVersion }
+        var req = URLRequest(url: URL(string: "https://api.github.com/repos/\(Self.repo)/commits/\(Self.branch)")!)
+        req.setValue("application/vnd.github.sha", forHTTPHeaderField: "Accept")   // 커밋 해시만 받기
+        req.cachePolicy = .reloadIgnoringLocalCacheData
+        req.timeoutInterval = 15
+        guard let res = try? await URLSession.shared.data(for: req),
+              (res.1 as? HTTPURLResponse)?.statusCode == 200,
+              let latest = String(data: res.0, encoding: .utf8)?.trimmingCharacters(in: .whitespacesAndNewlines),
+              latest.count == 40
+        else { return .failed }
+        let isNew = latest != installed
+        // 설치 중이거나 실패 표시가 떠 있으면 그대로 두기
+        if status == .idle || status == .available { status = isNew ? .available : .idle }
+        return isNew ? .available : .upToDate
+    }
+
+    /// 업데이트 작업을 launchd 로 실행. 앱과 따로 돌아야 install.sh 가 앱을 끌 때 같이 꺼지지 않음
+    func install() {
+        try? FileManager.default.removeItem(at: failedURL)
+        let p = Process()
+        p.executableURL = URL(fileURLWithPath: "/bin/launchctl")
+        p.arguments = ["kickstart", "gui/\(getuid())/\(jobLabel)"]
+        p.standardOutput = FileHandle.nullDevice
+        p.standardError = FileHandle.nullDevice
+        guard (try? p.run()) != nil else {
+            status = .failed("업데이트를 시작하지 못했어요.")
+            return
+        }
+        p.waitUntilExit()
+        guard p.terminationStatus == 0 else {
+            status = .failed("업데이트를 시작하지 못했어요. 설치 명령어로 한 번 다시 설치해 주세요.")
+            return
+        }
+        status = .updating
+        // 성공하면 이 앱은 install.sh 가 끄므로, 살아 있는 동안은 실패 표시 파일만 지켜보면 됨
+        let started = Date()
+        watchTimer?.invalidate()
+        watchTimer = Timer.scheduledTimer(withTimeInterval: 2, repeats: true) { [weak self] _ in
+            Task { @MainActor in self?.watchUpdate(since: started) }
+        }
+    }
+
+    private func watchUpdate(since start: Date) {
+        if FileManager.default.fileExists(atPath: failedURL.path) {
+            stopWatching(.failed("업데이트에 실패했어요."))
+        } else if Date().timeIntervalSince(start) > 10 * 60 {
+            stopWatching(.failed("업데이트가 끝나지 않았어요."))
+        }
+    }
+
+    private func stopWatching(_ s: Status) {
+        watchTimer?.invalidate()
+        watchTimer = nil
+        status = s
+    }
+
+    func openLog() {
+        NSWorkspace.shared.open(logURL)
     }
 }
 
@@ -268,6 +383,57 @@ struct ColorSettingsView: View {
         .padding(10)
         .frame(maxWidth: .infinity, alignment: .leading)
         .background(Color.primary.opacity(0.06), in: RoundedRectangle(cornerRadius: 10, style: .continuous))
+    }
+}
+
+/// 패널 위쪽 업데이트 안내 (새 버전 / 설치 중 / 실패)
+struct UpdateBanner: View {
+    @ObservedObject var updater: Updater
+    @Environment(\.personalColor) private var personalColor
+
+    var body: some View {
+        switch updater.status {
+        case .idle:
+            EmptyView()
+        case .available:
+            row(icon: "arrow.down.circle.fill", text: "새 버전이 있어요") {
+                Button("업데이트") { updater.install() }
+            }
+        case .updating:
+            HStack(spacing: 8) {
+                ProgressView().controlSize(.small)
+                Text("업데이트 중… 끝나면 다시 켜져요").font(.callout)
+                Spacer(minLength: 0)
+            }
+            .modifier(BannerBackground())
+        case .failed(let message):
+            row(icon: "exclamationmark.triangle.fill", text: message) {
+                if FileManager.default.fileExists(atPath: updater.logURL.path) {
+                    Button("기록") { updater.openLog() }
+                }
+                Button("다시 시도") { updater.install() }
+            }
+        }
+    }
+
+    private func row<Buttons: View>(icon: String, text: String,
+                                    @ViewBuilder buttons: () -> Buttons) -> some View {
+        HStack(spacing: 8) {
+            Image(systemName: icon).foregroundColor(personalColor)
+            Text(text).font(.callout)
+            Spacer(minLength: 0)
+            buttons().controlSize(.small)
+        }
+        .modifier(BannerBackground())
+    }
+}
+
+struct BannerBackground: ViewModifier {
+    func body(content: Content) -> some View {
+        content
+            .padding(10)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .background(Color.primary.opacity(0.06), in: RoundedRectangle(cornerRadius: 10, style: .continuous))
     }
 }
 
@@ -402,6 +568,7 @@ struct TodoCard: View {
 struct TodoPanelView: View {
     @ObservedObject var store: TodoStore
     @ObservedObject var settings: AppSettings
+    @ObservedObject var updater: Updater
     @FocusState private var focus: Field?
     @State private var showSettings = false
     @State private var dragging: UUID?
@@ -439,6 +606,7 @@ struct TodoPanelView: View {
             if showSettings {
                 ColorSettingsView(settings: settings)
             }
+            UpdateBanner(updater: updater)
             Divider()
 
             if let err = store.loadError {
@@ -636,6 +804,7 @@ final class BubbleState: ObservableObject {
 struct BubbleContent: View {
     @ObservedObject var state: BubbleState
     @ObservedObject var settings: AppSettings
+    @ObservedObject var updater: Updater
 
     var body: some View {
         Image(systemName: state.open ? "xmark" : "checklist")
@@ -645,6 +814,16 @@ struct BubbleContent: View {
             // 유리 틴트는 창이 활성일 때만 진하게 보여서, 색은 직접 칠하고 유리는 그 위 질감으로만 사용
             .background(settings.color.opacity(0.85), in: Circle())
             .modifier(GlassBackground(shape: Circle()))
+            // 새 버전이 있거나 업데이트에 실패하면 빨간 점
+            .overlay(alignment: .topTrailing) {
+                if updater.needsAttention {
+                    Circle()
+                        .fill(Color.red)
+                        .frame(width: 10, height: 10)
+                        .overlay(Circle().strokeBorder(Color.white, lineWidth: 1.5))
+                        .offset(x: -3, y: 3)
+                }
+            }
             .scaleEffect(state.pressed ? 0.92 : 1)
             .animation(.easeOut(duration: 0.12), value: state.pressed)
             .frame(width: 60, height: 60)
@@ -661,10 +840,10 @@ final class BubbleView: NSView {
     private var windowStart = NSPoint.zero
     private var dragged = false
 
-    init(frame: NSRect, state: BubbleState, settings: AppSettings) {
+    init(frame: NSRect, state: BubbleState, settings: AppSettings, updater: Updater) {
         self.state = state
         super.init(frame: frame)
-        let host = NSHostingView(rootView: BubbleContent(state: state, settings: settings))
+        let host = NSHostingView(rootView: BubbleContent(state: state, settings: settings, updater: updater))
         host.frame = bounds
         host.autoresizingMask = [.width, .height]
         addSubview(host)
@@ -704,10 +883,12 @@ final class BubbleView: NSView {
 // MARK: - 앱
 
 @MainActor
-final class AppDelegate: NSObject, NSApplicationDelegate {
+final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     let store = TodoStore()
     let bubbleState = BubbleState()
     let settings = AppSettings()
+    let updater = Updater()
+    let updateItem = NSMenuItem(title: "업데이트 확인…", action: nil, keyEquivalent: "")
     var bubble: FloatingPanel!
     var popup: FloatingPanel!
     private var termSource: DispatchSourceSignal?
@@ -743,7 +924,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         bubble = FloatingPanel(rect: NSRect(origin: initialOrigin(),
                                             size: NSSize(width: bubbleSize, height: bubbleSize)))
         let view = BubbleView(frame: NSRect(x: 0, y: 0, width: bubbleSize, height: bubbleSize),
-                              state: bubbleState, settings: settings)
+                              state: bubbleState, settings: settings, updater: updater)
         view.onClick = { [weak self] in self?.togglePopup() }
         view.onMove = { [weak self] in self?.positionPopup() }
         view.onDragEnd = { [weak self] in
@@ -758,9 +939,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         openFile.target = self
         menu.addItem(openFile)
         menu.addItem(.separator())
+        updateItem.target = self
+        menu.addItem(updateItem)
+        menu.addItem(.separator())
         let quit = NSMenuItem(title: "종료", action: #selector(NSApplication.terminate(_:)), keyEquivalent: "")
         quit.target = NSApp
         menu.addItem(quit)
+        menu.autoenablesItems = false
+        menu.delegate = self   // 열 때마다 업데이트 항목을 상태에 맞게 바꾸기
         view.menu = menu
         bubble.allowsKey = false
         bubble.contentView = view
@@ -773,7 +959,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
         popup = FloatingPanel(rect: NSRect(origin: .zero, size: popupSize))
         let container = NSView(frame: NSRect(origin: .zero, size: popupSize))
-        let host = FirstMouseHostingView(rootView: TodoPanelView(store: store, settings: settings))
+        let host = FirstMouseHostingView(rootView: TodoPanelView(store: store, settings: settings, updater: updater))
         if #available(macOS 13.0, *) { host.sizingOptions = [] }   // SwiftUI 가 창 크기를 고정하지 않도록
         host.frame = container.bounds
         host.autoresizingMask = [.width, .height]
@@ -785,6 +971,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
         container.addSubview(grip)
         popup.contentView = container
+
+        updater.start()
     }
 
     func applicationWillTerminate(_ notification: Notification) {
@@ -848,6 +1036,50 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     @objc func openTodoFile() {
         store.save()
         NSWorkspace.shared.open(store.fileURL)
+    }
+
+    func menuNeedsUpdate(_ menu: NSMenu) {
+        updateItem.isEnabled = true
+        switch updater.status {
+        case .available:
+            updateItem.title = "업데이트 설치"
+            updateItem.action = #selector(installUpdate)
+        case .updating:
+            updateItem.title = "업데이트 중…"
+            updateItem.isEnabled = false
+        case .idle, .failed:
+            updateItem.title = "업데이트 확인…"
+            updateItem.action = #selector(checkForUpdates)
+        }
+    }
+
+    @objc func installUpdate() { updater.install() }
+
+    @objc func checkForUpdates() {
+        Task {
+            let result = await updater.check()
+            let alert = NSAlert()
+            switch result {
+            case .upToDate:
+                alert.messageText = "최신 버전이에요."
+            case .available:
+                alert.messageText = "새 버전이 있어요."
+                alert.informativeText = "업데이트하면 잠깐 꺼졌다가 다시 켜져요. 할 일은 그대로 남아 있어요."
+                alert.addButton(withTitle: "업데이트")
+                alert.addButton(withTitle: "나중에")
+            case .unknownVersion:
+                alert.messageText = "설치된 버전을 알 수 없어요."
+                alert.informativeText = "설치 명령어(curl …)로 설치한 경우에만 업데이트를 확인할 수 있어요."
+            case .failed:
+                alert.messageText = "업데이트를 확인하지 못했어요."
+                alert.informativeText = "인터넷 연결을 확인하고 잠시 뒤 다시 시도해 주세요."
+            }
+            if alert.buttons.isEmpty { alert.addButton(withTitle: "확인") }
+            NSApp.activate(ignoringOtherApps: true)   // Dock 없는 앱이라 앞으로 가져와야 창이 보임
+            if alert.runModal() == .alertFirstButtonReturn && result == .available {
+                updater.install()
+            }
+        }
     }
 }
 

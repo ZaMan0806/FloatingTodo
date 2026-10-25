@@ -8,8 +8,10 @@ LABEL="com.zaman.floatingtodo"
 APPDIR="$HOME/Library/Application Support/FloatingTodo"
 
 launchctl bootout "gui/$(id -u)/$LABEL" 2>/dev/null
+launchctl bootout "gui/$(id -u)/$LABEL.updater" 2>/dev/null
 pkill -x FloatingTodo 2>/dev/null
-rm -f "$HOME/Library/LaunchAgents/$LABEL.plist" "$APPDIR/FloatingTodo"
+rm -f "$HOME/Library/LaunchAgents/$LABEL.plist" "$HOME/Library/LaunchAgents/$LABEL.updater.plist"
+rm -f "$APPDIR/FloatingTodo" "$APPDIR/version" "$APPDIR/update.log" "$APPDIR/update-failed"
 
 if [ "${1:-}" = "--purge" ]; then
   rm -rf "$APPDIR"
