@@ -8,22 +8,49 @@ import UniformTypeIdentifiers
 // MARK: - 데이터
 
 struct Checkpoint: Codable, Identifiable, Equatable {
+    /// 할 일 아래로 몇 단계까지 체크포인트를 만들 수 있는지 (패널 폭을 생각해서 제한)
+    static let maxDepth = 3
+
     var id: UUID
     var title: String
-    var done: Bool
+    var done: Bool              // 하위 체크포인트가 없을 때만 사용
+    var collapsed: Bool
+    var children: [Checkpoint]
 
-    init(_ title: String = "", done: Bool = false) {
+    init(_ title: String = "", done: Bool = false, children: [Checkpoint] = []) {
         id = UUID(); self.title = title; self.done = done
+        collapsed = false; self.children = children
     }
 
-    enum CodingKeys: String, CodingKey { case id, title, done }
+    enum CodingKeys: String, CodingKey { case id, title, done, collapsed, children }
 
+    // 하위 체크포인트가 없던 예전 todos.json 도 읽히도록
     init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
         id = (try? c.decode(UUID.self, forKey: .id)) ?? UUID()
         title = (try? c.decode(String.self, forKey: .title)) ?? ""
         done = (try? c.decode(Bool.self, forKey: .done)) ?? false
+        collapsed = (try? c.decode(Bool.self, forKey: .collapsed)) ?? false
+        children = (try? c.decode([Checkpoint].self, forKey: .children)) ?? []
     }
+
+    /// 하위 체크포인트가 있으면 전부 끝났을 때 완료
+    var isDone: Bool { children.isEmpty ? done : children.allSatisfy(\.isDone) }
+
+    var progressText: String? {
+        children.isEmpty ? nil : "\(children.filter(\.isDone).count)/\(children.count)"
+    }
+
+    /// 하위 체크포인트까지 모두 같은 상태로
+    mutating func setDone(_ value: Bool) {
+        if children.isEmpty {
+            done = value
+        } else {
+            for i in children.indices { children[i].setDone(value) }
+        }
+    }
+
+    mutating func toggleDone() { setDone(!isDone) }
 }
 
 struct Todo: Codable, Identifiable, Equatable {
@@ -51,19 +78,19 @@ struct Todo: Codable, Identifiable, Equatable {
     }
 
     /// 체크포인트가 있으면 전부 끝났을 때 완료
-    var isDone: Bool { checkpoints.isEmpty ? done : checkpoints.allSatisfy(\.done) }
+    var isDone: Bool { checkpoints.isEmpty ? done : checkpoints.allSatisfy(\.isDone) }
 
     var progressText: String? {
-        checkpoints.isEmpty ? nil : "\(checkpoints.filter(\.done).count)/\(checkpoints.count)"
+        checkpoints.isEmpty ? nil : "\(checkpoints.filter(\.isDone).count)/\(checkpoints.count)"
     }
 
-    /// 메인 체크 클릭: 체크포인트가 있으면 전부 체크/해제
+    /// 메인 체크 클릭: 체크포인트가 있으면 (하위까지) 전부 체크/해제
     mutating func toggleDone() {
         if checkpoints.isEmpty {
             done.toggle()
         } else {
             let target = !isDone
-            for i in checkpoints.indices { checkpoints[i].done = target }
+            for i in checkpoints.indices { checkpoints[i].setDone(target) }
         }
     }
 }
@@ -704,6 +731,52 @@ struct CardFramesKey: PreferenceKey {
     }
 }
 
+/// 체크포인트 한 줄 + 그 아래 하위 체크포인트들 (단계마다 들여쓰기)
+struct CheckpointRow: View {
+    @Binding var checkpoint: Checkpoint
+    let depth: Int              // 할 일 바로 아래가 1
+    @Binding var focus: Field?
+    let onDelete: () -> Void
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            HStack(alignment: .firstTextBaseline, spacing: 6) {
+                CheckButton(done: checkpoint.isDone, small: true) { checkpoint.toggleDone() }
+                EditableText(placeholder: "체크포인트", text: $checkpoint.title, style: .checkpoint,
+                             done: checkpoint.isDone, field: .checkpoint(checkpoint.id), focus: $focus)
+                if let p = checkpoint.progressText {
+                    Text(p).font(.caption).monospacedDigit().foregroundColor(.secondary)
+                }
+                if !checkpoint.children.isEmpty {
+                    IconButton(checkpoint.collapsed ? "chevron.right" : "chevron.down",
+                               help: checkpoint.collapsed ? "펼치기" : "접기") {
+                        checkpoint.collapsed.toggle()
+                    }
+                }
+                if depth < Checkpoint.maxDepth {
+                    IconButton("plus.circle", help: "하위 체크포인트 추가") {
+                        let child = Checkpoint()
+                        checkpoint.children.append(child)
+                        checkpoint.collapsed = false
+                        focus = .checkpoint(child.id)   // 새 칸이 화면에 붙으면 커서가 들어감
+                    }
+                }
+                IconButton("xmark", help: "체크포인트 삭제", action: onDelete)
+            }
+
+            if !checkpoint.collapsed {
+                ForEach($checkpoint.children) { $child in
+                    CheckpointRow(checkpoint: $child, depth: depth + 1, focus: $focus) {
+                        let id = child.id
+                        checkpoint.children.removeAll { $0.id == id }
+                    }
+                }
+                .padding(.leading, 20)
+            }
+        }
+    }
+}
+
 struct TodoCard: View {
     @Binding var todo: Todo
     @Binding var focus: Field?
@@ -747,17 +820,12 @@ struct TodoCard: View {
             // 체크포인트
             if !todo.collapsed {
                 ForEach($todo.checkpoints) { $cp in
-                    HStack(alignment: .firstTextBaseline, spacing: 6) {
-                        CheckButton(done: cp.done, small: true) { cp.done.toggle() }
-                        EditableText(placeholder: "체크포인트", text: $cp.title, style: .checkpoint,
-                                     done: cp.done, field: .checkpoint(cp.id), focus: $focus)
-                        IconButton("xmark", help: "체크포인트 삭제") {
-                            let id = cp.id
-                            todo.checkpoints.removeAll { $0.id == id }
-                        }
+                    CheckpointRow(checkpoint: $cp, depth: 1, focus: $focus) {
+                        let id = cp.id
+                        todo.checkpoints.removeAll { $0.id == id }
                     }
-                    .padding(.leading, 42)
                 }
+                .padding(.leading, 42)
             }
         }
         .padding(10)
