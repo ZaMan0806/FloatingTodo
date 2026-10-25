@@ -1,0 +1,4 @@
+build/
+*.bak*
+todos.json
+.DS_Store
