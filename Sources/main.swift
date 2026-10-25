@@ -823,9 +823,10 @@ struct TodoCard: View {
                     .contentShape(Rectangle())
                     .gesture(
                         DragGesture(minimumDistance: 2, coordinateSpace: .named("todoList"))
-                            .onChanged { onDragChanged($0.location.y) }
+                            .onChanged { onDragChanged($0.translation.height) }
                             .onEnded { _ in onDragEnded() }
                     )
+                    .onHover { inside in inside ? NSCursor.openHand.push() : NSCursor.pop() }
                     .help("끌어서 순서 바꾸기")
                 CheckButton(done: todo.isDone) { todo.toggleDone() }
                 EditableText(placeholder: "할 일 제목", text: $todo.title, style: .title,
@@ -866,8 +867,13 @@ struct TodoPanelView: View {
     @ObservedObject var updater: Updater
     @State private var focus: Field?
     @State private var showSettings = false
-    @State private var dragging: UUID?
     @State private var cardFrames: [UUID: CGRect] = [:]
+    // 순서 바꾸기: 끄는 동안엔 목록 순서는 그대로 두고 화면에서만 움직였다가, 놓을 때 한 번에 반영
+    @State private var dragging: UUID?
+    @State private var dragOffset: CGFloat = 0         // 끄는 카드가 마우스를 따라 움직인 거리
+    @State private var dragTarget: Int?                // 놓으면 들어갈 자리
+    @State private var dragFrames: [UUID: CGRect] = [:] // 끌기 시작할 때의 카드 위치 (기준이 흔들리지 않게)
+    @State private var settling: UUID?                 // 놓은 뒤 제자리로 가는 동안 다른 카드 위에 보이게
 
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
@@ -911,7 +917,7 @@ struct TodoPanelView: View {
                     .foregroundColor(.secondary).font(.callout)
             } else {
                 ScrollView {
-                    VStack(spacing: 8) {
+                    VStack(spacing: cardSpacing) {
                         ForEach($store.items) { $todo in
                             let id = todo.id
                             TodoCard(todo: $todo,
@@ -922,9 +928,13 @@ struct TodoPanelView: View {
                                              focusSoon(.checkpoint(cid))
                                          }
                                      },
-                                     onDragChanged: { y in dragMoved(id, to: y) },
-                                     onDragEnded: { withAnimation(.easeOut(duration: 0.15)) { dragging = nil } })
-                            // 끄는 중: 크기는 그대로 두고, 테두리는 카드 안쪽에 그려서 잘리지 않게
+                                     onDragChanged: { dy in dragChanged(id, translation: dy) },
+                                     onDragEnded: { dragEnded(id) })
+                            .background(GeometryReader { g in
+                                Color.clear.preference(key: CardFramesKey.self,
+                                                       value: [id: g.frame(in: .named("todoList"))])
+                            })
+                            // 끄는 중: 들어 올린 것처럼 불투명한 바탕 + 그림자 (뒤 카드 글씨가 비치지 않게)
                             .overlay(
                                 RoundedRectangle(cornerRadius: 10, style: .continuous)
                                     .strokeBorder(settings.color, lineWidth: dragging == id ? 1.5 : 0)
@@ -933,11 +943,15 @@ struct TodoPanelView: View {
                                 RoundedRectangle(cornerRadius: 10, style: .continuous)
                                     .fill(settings.color.opacity(dragging == id ? 0.12 : 0))
                             )
-                            .zIndex(dragging == id ? 1 : 0)
-                            .background(GeometryReader { g in
-                                Color.clear.preference(key: CardFramesKey.self,
-                                                       value: [id: g.frame(in: .named("todoList"))])
-                            })
+                            .background(
+                                RoundedRectangle(cornerRadius: 10, style: .continuous)
+                                    .fill(Color(nsColor: .windowBackgroundColor))
+                                    .shadow(color: .black.opacity(0.2), radius: 8, y: 3)
+                                    .opacity(dragging == id ? 1 : 0)
+                            )
+                            .scaleEffect(dragging == id ? 1.02 : 1)
+                            .offset(y: dragging == id ? dragOffset : dragShift(for: id))
+                            .zIndex(dragging == id || settling == id ? 1 : 0)
                         }
                     }
                     .coordinateSpace(name: "todoList")
@@ -961,15 +975,54 @@ struct TodoPanelView: View {
         .tint(settings.color)   // 커서·선택 영역 등도 같은 색으로
     }
 
-    /// 마우스 위치(y)보다 위에 있는 다른 카드 수 = 끌고 있는 카드가 들어갈 자리
-    private func dragMoved(_ id: UUID, to y: CGFloat) {
-        if dragging != id { dragging = id; focus = nil }
-        guard let from = store.items.firstIndex(where: { $0.id == id }) else { return }
-        let target = store.items.filter { $0.id != id && (cardFrames[$0.id]?.midY ?? .infinity) < y }.count
-        guard target != from else { return }
-        withAnimation(.easeInOut(duration: 0.15)) {
-            let item = store.items.remove(at: from)
-            store.items.insert(item, at: target)
+    private let cardSpacing: CGFloat = 8
+
+    private func dragChanged(_ id: UUID, translation: CGFloat) {
+        if dragging != id {
+            focus = nil
+            dragFrames = cardFrames
+            dragTarget = store.items.firstIndex { $0.id == id }
+            withAnimation(.easeOut(duration: 0.15)) { dragging = id }
+        }
+        guard let start = dragFrames[id] else { return }
+
+        // 목록 맨 위·맨 아래 밖으로는 못 나가게
+        let top = dragFrames.values.map(\.minY).min() ?? start.minY
+        let bottom = dragFrames.values.map(\.maxY).max() ?? start.maxY
+        dragOffset = min(max(translation, top - start.minY), bottom - start.maxY)   // 마우스를 바로 따라감
+
+        // 끄는 카드의 가운데가 다른 카드의 가운데를 지나면 자리 바꾸기
+        let center = start.midY + dragOffset
+        let target = store.items.filter { $0.id != id && (dragFrames[$0.id]?.midY ?? .infinity) < center }.count
+        if target != dragTarget {
+            withAnimation(.spring(response: 0.28, dampingFraction: 0.85)) { dragTarget = target }
+        }
+    }
+
+    /// 끄는 카드가 지나간 카드들은 그 카드 높이만큼 비켜 줌
+    private func dragShift(for id: UUID) -> CGFloat {
+        guard let dragged = dragging, let target = dragTarget, let h = dragFrames[dragged]?.height,
+              let from = store.items.firstIndex(where: { $0.id == dragged }),
+              let i = store.items.firstIndex(where: { $0.id == id }) else { return 0 }
+        if from < target && i > from && i <= target { return -(h + cardSpacing) }
+        if target < from && i >= target && i < from { return h + cardSpacing }
+        return 0
+    }
+
+    /// 놓으면 순서를 반영하고, 카드가 지금 위치에서 제자리로 미끄러지듯 들어감
+    private func dragEnded(_ id: UUID) {
+        guard dragging == id else { return }
+        settling = id
+        withAnimation(.spring(response: 0.3, dampingFraction: 0.85)) {
+            if let from = store.items.firstIndex(where: { $0.id == id }), let to = dragTarget, to != from {
+                store.items.move(fromOffsets: IndexSet(integer: from), toOffset: to > from ? to + 1 : to)
+            }
+            dragging = nil
+            dragTarget = nil
+            dragOffset = 0
+        }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.4) {
+            if settling == id { settling = nil }
         }
     }
 
