@@ -37,7 +37,8 @@ struct CheckpointRow: View {
                 IconButton("xmark", help: "체크포인트 삭제", action: onDelete)
             }
 
-            if !checkpoint.collapsed {
+            // 비어 있을 때 빈 목록을 두면 그것도 한 칸으로 쳐서 아래 여백이 생기므로 아예 안 만듦
+            if !checkpoint.collapsed && !checkpoint.children.isEmpty {
                 CheckpointList(checkpoints: $checkpoint.children, depth: depth + 1, focus: $focus)
                     .padding(.leading, 20)   // 하위 줄의 손잡이가 이 줄의 체크 버튼 아래에 오게
             }
@@ -91,7 +92,7 @@ struct TodoCard: View {
             }
 
             // 체크포인트
-            if !todo.collapsed {
+            if !todo.collapsed && !todo.checkpoints.isEmpty {
                 CheckpointList(checkpoints: $todo.checkpoints, depth: 1, focus: $focus)
                     .padding(.leading, 22)   // 체크포인트 손잡이가 할 일 체크 버튼 아래에 오게
             }

@@ -20,8 +20,9 @@ struct ReorderHandle: View {
         Image(systemName: "line.3.horizontal")
             .font(.caption)
             .foregroundColor(.secondary)
-            .frame(width: 14, height: 18)
-            .contentShape(Rectangle())
+            .frame(width: 14)
+            // 줄 높이는 그대로 두고 잡는 범위만 넓힘 (높이를 고정하면 작은 글씨 줄이 그만큼 커짐)
+            .contentShape(Rectangle().inset(by: -4))
             .gesture(
                 // 줄이 마우스를 따라 움직이므로, 움직이지 않는 화면 좌표 기준으로 거리를 잼
                 DragGesture(minimumDistance: 2, coordinateSpace: .global)
