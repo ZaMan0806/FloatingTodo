@@ -75,6 +75,23 @@ cd FloatingTodo
 ./install.sh
 ```
 
+Xcode 에서 `Package.swift` 를 열면 파일 사이 이동·자동 완성이 됩니다.
+
+### 코드 구조
+
+```
+Sources/
+├── main.swift                  앱 시작
+├── App/AppDelegate.swift       버튼·패널 창 관리, 우클릭 메뉴
+├── Model/                      데이터 (할 일·체크포인트, 저장, 퍼스널 컬러)
+├── Update/Updater.swift        업데이트 확인·설치
+├── Views/
+│   ├── Panel/                  할 일 패널, 카드, 설정, 업데이트 안내
+│   ├── Editor/                 여러 줄 입력칸 (NSTextView)
+│   └── Components/             공통 버튼, Liquid Glass 배경
+└── Windows/                    떠 있는 창, 동그란 버튼, 크기 조절 손잡이
+```
+
 ## 라이선스
 
 MIT
