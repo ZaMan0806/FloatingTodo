@@ -1,26 +1,19 @@
 // 할 일 카드와 체크포인트 줄
 
-import AppKit
 import SwiftUI
-
-/// 각 할 일 카드의 위치(목록 기준 좌표)를 모아서 순서 바꾸기 계산에 사용
-struct CardFramesKey: PreferenceKey {
-    static let defaultValue: [UUID: CGRect] = [:]
-    static func reduce(value: inout [UUID: CGRect], nextValue: () -> [UUID: CGRect]) {
-        value.merge(nextValue()) { $1 }
-    }
-}
 
 /// 체크포인트 한 줄 + 그 아래 하위 체크포인트들 (단계마다 들여쓰기)
 struct CheckpointRow: View {
     @Binding var checkpoint: Checkpoint
     let depth: Int              // 할 일 바로 아래가 1
     @Binding var focus: Field?
+    let handle: ReorderHandle
     let onDelete: () -> Void
 
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
             HStack(alignment: .firstTextBaseline, spacing: 6) {
+                handle
                 CheckButton(done: checkpoint.isDone, small: true) { checkpoint.toggleDone() }
                 EditableText(placeholder: "체크포인트", text: $checkpoint.title, style: .checkpoint,
                              done: checkpoint.isDone, field: .checkpoint(checkpoint.id), focus: $focus)
@@ -45,13 +38,25 @@ struct CheckpointRow: View {
             }
 
             if !checkpoint.collapsed {
-                ForEach($checkpoint.children) { $child in
-                    CheckpointRow(checkpoint: $child, depth: depth + 1, focus: $focus) {
-                        let id = child.id
-                        checkpoint.children.removeAll { $0.id == id }
-                    }
-                }
-                .padding(.leading, 20)
+                CheckpointList(checkpoints: $checkpoint.children, depth: depth + 1, focus: $focus)
+                    .padding(.leading, 20)   // 하위 줄의 손잡이가 이 줄의 체크 버튼 아래에 오게
+            }
+        }
+    }
+}
+
+/// 같은 부모 아래의 체크포인트들 (끌어서 순서 바꾸기, 하위 체크포인트는 같이 움직임)
+struct CheckpointList: View {
+    @Binding var checkpoints: [Checkpoint]
+    let depth: Int
+    @Binding var focus: Field?
+
+    var body: some View {
+        ReorderableStack(items: $checkpoints, spacing: 6, liftInset: 4, cornerRadius: 8,
+                         onDragStart: { focus = nil }) { cp, handle in
+            CheckpointRow(checkpoint: cp, depth: depth, focus: $focus, handle: handle) {
+                let id = cp.wrappedValue.id
+                checkpoints.removeAll { $0.id == id }
             }
         }
     }
@@ -60,28 +65,15 @@ struct CheckpointRow: View {
 struct TodoCard: View {
     @Binding var todo: Todo
     @Binding var focus: Field?
+    let handle: ReorderHandle
     let onDelete: () -> Void
     let onAddCheckpoint: () -> Void
-    let onDragChanged: (CGFloat) -> Void
-    let onDragEnded: () -> Void
 
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
             // 메인 할 일
             HStack(alignment: .firstTextBaseline, spacing: 6) {
-                // 순서 바꾸기 손잡이
-                Image(systemName: "line.3.horizontal")
-                    .font(.caption)
-                    .foregroundColor(.secondary)
-                    .frame(width: 14, height: 18)
-                    .contentShape(Rectangle())
-                    .gesture(
-                        DragGesture(minimumDistance: 2, coordinateSpace: .named("todoList"))
-                            .onChanged { onDragChanged($0.translation.height) }
-                            .onEnded { _ in onDragEnded() }
-                    )
-                    .onHover { inside in inside ? NSCursor.openHand.push() : NSCursor.pop() }
-                    .help("끌어서 순서 바꾸기")
+                handle
                 CheckButton(done: todo.isDone) { todo.toggleDone() }
                 EditableText(placeholder: "할 일 제목", text: $todo.title, style: .title,
                              done: todo.isDone, field: .todo(todo.id), focus: $focus)
@@ -100,13 +92,8 @@ struct TodoCard: View {
 
             // 체크포인트
             if !todo.collapsed {
-                ForEach($todo.checkpoints) { $cp in
-                    CheckpointRow(checkpoint: $cp, depth: 1, focus: $focus) {
-                        let id = cp.id
-                        todo.checkpoints.removeAll { $0.id == id }
-                    }
-                }
-                .padding(.leading, 42)
+                CheckpointList(checkpoints: $todo.checkpoints, depth: 1, focus: $focus)
+                    .padding(.leading, 22)   // 체크포인트 손잡이가 할 일 체크 버튼 아래에 오게
             }
         }
         .padding(10)
