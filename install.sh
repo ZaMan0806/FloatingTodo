@@ -46,7 +46,10 @@ if [ -z "$SRC" ]; then
 fi
 
 say "빌드 중... (처음엔 1분 정도 걸릴 수 있어요)"
-xcrun swiftc -O "$SRC/Sources/main.swift" -o "$WORK/FloatingTodo" \
+# Sources 아래의 .swift 파일 전부 (하위 폴더 포함)
+SWIFT_FILES=()
+while IFS= read -r f; do SWIFT_FILES+=("$f"); done < <(find "$SRC/Sources" -name '*.swift' | sort)
+xcrun swiftc -O -module-name FloatingTodo "${SWIFT_FILES[@]}" -o "$WORK/FloatingTodo" \
   -framework AppKit -framework SwiftUI \
   || fail "빌드에 실패했어요. 위 오류와 함께 이슈를 남겨 주세요: https://github.com/$REPO/issues"
 
