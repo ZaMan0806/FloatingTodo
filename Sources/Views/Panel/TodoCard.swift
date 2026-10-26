@@ -51,11 +51,13 @@ struct CheckpointList: View {
     @Binding var checkpoints: [Checkpoint]
     let depth: Int
     @Binding var focus: Field?
+    @Environment(\.recordDeletion) private var recordDeletion
 
     var body: some View {
         ReorderableStack(items: $checkpoints, spacing: 6, liftInset: 4, cornerRadius: 8,
                          onDragStart: { focus = nil }) { cp, handle in
             CheckpointRow(checkpoint: cp, depth: depth, focus: $focus, handle: handle) {
+                recordDeletion("체크포인트를 삭제했어요")
                 let id = cp.wrappedValue.id
                 checkpoints.removeAll { $0.id == id }
             }

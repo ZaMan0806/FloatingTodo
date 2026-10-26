@@ -15,6 +15,7 @@ struct RowFramesKey: PreferenceKey {
 struct ReorderHandle: View {
     let onChanged: (CGFloat) -> Void
     let onEnded: () -> Void
+    @State private var hovering = false   // 커서를 손 모양으로 바꿔 둔 상태인지 (바꾼 만큼만 되돌리기)
 
     var body: some View {
         Image(systemName: "line.3.horizontal")
@@ -29,7 +30,15 @@ struct ReorderHandle: View {
                     .onChanged { onChanged($0.translation.height) }
                     .onEnded { _ in onEnded() }
             )
-            .onHover { inside in inside ? NSCursor.openHand.push() : NSCursor.pop() }
+            .onHover { inside in
+                guard inside != hovering else { return }
+                hovering = inside
+                if inside { NSCursor.openHand.push() } else { NSCursor.pop() }
+            }
+            .onDisappear {
+                // 마우스를 올린 채로 줄이 지워지거나 접히면 커서가 손 모양으로 남지 않게
+                if hovering { hovering = false; NSCursor.pop() }
+            }
             .help("끌어서 순서 바꾸기")
     }
 }

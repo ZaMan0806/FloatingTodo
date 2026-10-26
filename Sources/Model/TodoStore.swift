@@ -5,10 +5,14 @@ import Combine
 
 @MainActor
 final class TodoStore: ObservableObject {
-    @Published var items: [Todo] = [] { didSet { scheduleSave() } }
+    @Published var items: [Todo] = [] { didSet { scheduleSave(); dropUndoIfEdited() } }
     @Published var loadError: String?
+    @Published private(set) var undoMessage: String?   // 있으면 패널 아래에 '되돌리기'가 보임
     let fileURL: URL
     private var saveTask: Task<Void, Never>?
+    private var undoSnapshot: [Todo]?
+    private var undoTimer: Task<Void, Never>?
+    private var deleting = false
 
     // ~/Library/Application Support/FloatingTodo (실행 파일·할 일·버전 정보가 모두 여기에)
     // (자동 실행 시 문서 폴더 접근 권한 문제를 피하기 위해 Application Support 사용)
@@ -71,7 +75,43 @@ final class TodoStore: ObservableObject {
     }
 
     func deleteTodo(_ id: UUID) {
+        recordDeletion("할 일을 삭제했어요")
         items.removeAll { $0.id == id }
+    }
+
+    /// 지우기 직전에 호출: 지금 목록을 기억해 두고 잠깐 동안 되돌릴 수 있게 함
+    func recordDeletion(_ message: String) {
+        undoSnapshot = items
+        undoMessage = message
+        deleting = true
+        undoTimer?.cancel()
+        undoTimer = Task { [weak self] in
+            try? await Task.sleep(nanoseconds: 6_000_000_000)
+            guard !Task.isCancelled else { return }
+            self?.clearUndo()
+        }
+    }
+
+    func undoDeletion() {
+        guard let snapshot = undoSnapshot else { return }
+        clearUndo()
+        items = snapshot
+    }
+
+    /// 지운 뒤에 다른 걸 고치면 되돌리기를 없앰 (예전 목록으로 덮어써서 그 수정이 사라지지 않게)
+    private func dropUndoIfEdited() {
+        if deleting {
+            deleting = false
+        } else if undoSnapshot != nil {
+            clearUndo()
+        }
+    }
+
+    private func clearUndo() {
+        undoTimer?.cancel()
+        undoTimer = nil
+        undoSnapshot = nil
+        undoMessage = nil
     }
 
     func addCheckpoint(to todoID: UUID) -> UUID? {

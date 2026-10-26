@@ -67,6 +67,10 @@ struct TodoPanelView: View {
             }
 
             Spacer(minLength: 0)
+            if let message = store.undoMessage {
+                UndoBanner(message: message) { store.undoDeletion() }
+                    .transition(.move(edge: .bottom).combined(with: .opacity))
+            }
             let doneCount = store.items.filter(\.isDone).count
             Text("\(doneCount)/\(store.items.count) 완료")
                 .font(.caption)
@@ -76,7 +80,9 @@ struct TodoPanelView: View {
         .padding(16)
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
         .modifier(GlassBackground(shape: RoundedRectangle(cornerRadius: 22, style: .continuous)))
+        .animation(.easeOut(duration: 0.2), value: store.undoMessage)
         .environment(\.personalColor, settings.color)
+        .environment(\.recordDeletion, { message in store.recordDeletion(message) })
         .tint(settings.color)   // 커서·선택 영역 등도 같은 색으로
     }
 
