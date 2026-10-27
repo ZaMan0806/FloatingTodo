@@ -15,7 +15,7 @@ struct RowFramesKey: PreferenceKey {
 struct ReorderHandle: View {
     let onChanged: (CGFloat) -> Void
     let onEnded: () -> Void
-    @State private var hovering = false   // 커서를 손 모양으로 바꿔 둔 상태인지 (바꾼 만큼만 되돌리기)
+    @ViewState private var hovering = false   // 커서를 손 모양으로 바꿔 둔 상태인지 (바꾼 만큼만 되돌리기)
 
     var body: some View {
         Image(systemName: "line.3.horizontal")
@@ -53,13 +53,13 @@ struct ReorderableStack<Item: Identifiable, Row: View>: View where Item.ID == UU
     @ViewBuilder let row: (Binding<Item>, ReorderHandle) -> Row
 
     @Environment(\.personalColor) private var personalColor
-    @State private var space = UUID()                  // 목록마다 따로 쓰는 좌표 공간
-    @State private var frames: [UUID: CGRect] = [:]
-    @State private var dragging: UUID?
-    @State private var dragOffset: CGFloat = 0         // 끄는 줄이 마우스를 따라 움직인 거리
-    @State private var dragTarget: Int?                // 놓으면 들어갈 자리
-    @State private var dragFrames: [UUID: CGRect] = [:] // 끌기 시작할 때의 위치 (기준이 흔들리지 않게)
-    @State private var settling: UUID?                 // 놓은 뒤 제자리로 가는 동안 다른 줄 위에 보이게
+    @ViewState private var space = UUID()                  // 목록마다 따로 쓰는 좌표 공간
+    @ViewState private var frames: [UUID: CGRect] = [:]
+    @ViewState private var dragging: UUID?
+    @ViewState private var dragOffset: CGFloat = 0         // 끄는 줄이 마우스를 따라 움직인 거리
+    @ViewState private var dragTarget: Int?                // 놓으면 들어갈 자리
+    @ViewState private var dragFrames: [UUID: CGRect] = [:] // 끌기 시작할 때의 위치 (기준이 흔들리지 않게)
+    @ViewState private var settling: UUID?                 // 놓은 뒤 제자리로 가는 동안 다른 줄 위에 보이게
 
     var body: some View {
         VStack(alignment: .leading, spacing: spacing) {

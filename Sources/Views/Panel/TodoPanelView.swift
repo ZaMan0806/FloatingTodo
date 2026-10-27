@@ -6,8 +6,8 @@ struct TodoPanelView: View {
     @ObservedObject var store: TodoStore
     @ObservedObject var settings: AppSettings
     @ObservedObject var updater: Updater
-    @State private var focus: Field?
-    @State private var showSettings = false
+    @ViewState private var focus: Field?
+    @ViewState private var showSettings = false
 
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {

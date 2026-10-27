@@ -89,7 +89,7 @@ Sources/
 ├── Views/
 │   ├── Panel/                  할 일 패널, 카드, 설정, 업데이트·되돌리기 안내
 │   ├── Editor/                 여러 줄 입력칸 (NSTextView)
-│   └── Components/             공통 버튼, 끌어서 순서 바꾸는 목록, Liquid Glass 배경
+│   └── Components/             공통 버튼, 끌어서 순서 바꾸는 목록, 뷰 상태(@ViewState), Liquid Glass 배경
 └── Windows/                    떠 있는 창, 동그란 버튼, 크기 조절 손잡이
 ```
 
