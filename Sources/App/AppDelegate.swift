@@ -10,6 +10,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     let settings = AppSettings()
     let updater = Updater()
     let updateItem = NSMenuItem(title: "업데이트 확인…", action: nil, keyEquivalent: "")
+    private var lastOpenedDay = Day.today
     var bubble: FloatingPanel!
     var popup: FloatingPanel!
     private var termSource: DispatchSourceSignal?
@@ -118,6 +119,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             popup.orderOut(nil)
             bubbleState.open = false
         } else {
+            store.pruneOldDays()
+            if Day.today != lastOpenedDay {   // 자정이 지난 뒤 처음 열면 달력도 오늘로
+                lastOpenedDay = Day.today
+                settings.selectedDay = Day.today
+            }
             positionPopup()
             popup.orderFrontRegardless()
             bubbleState.open = true

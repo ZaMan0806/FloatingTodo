@@ -8,6 +8,7 @@ macOS 화면 위에 항상 떠 있는 버튼 하나로 할 일을 관리하는 �
 - 항상 다른 창 위에 떠 있는 버튼 (드래그로 이동, 모든 데스크톱·전체화면에서 표시)
 - 할 일 + 체크포인트(하위 단계) 생성 · 수정 · 삭제, 체크포인트 안에 또 체크포인트 (3단계까지)
 - 손잡이(≡)를 끌어서 할 일·체크포인트 순서 바꾸기
+- 달력 탭: 날짜마다 따로 할 일 적기 (최근 7일 + 앞으로의 날만 보관)
 - 퍼스널 컬러 설정 (체크 표시와 버튼 색에 적용)
 - macOS 26 에서는 Liquid Glass 디자인
 - 패널 크기 조절, 로그인 시 자동 실행, 자동 저장
@@ -35,6 +36,7 @@ curl -fsSL https://raw.githubusercontent.com/ZaMan0806/FloatingTodo/main/install
 | 패널 열기 / 닫기 | 버튼 클릭 |
 | 버튼 옮기기 | 버튼 드래그 |
 | 할 일 추가 | 패널 위쪽 `+` |
+| 날짜별 할 일 | 패널 위쪽 `달력` 탭 → 날짜 고르고 `+` |
 | 체크포인트 추가 | 할 일 줄의 `⊕` |
 | 하위 체크포인트 추가 | 체크포인트 줄의 `⊕` |
 | 수정 | 텍스트 클릭 |
@@ -45,7 +47,8 @@ curl -fsSL https://raw.githubusercontent.com/ZaMan0806/FloatingTodo/main/install
 | 업데이트 | 패널 위쪽 `업데이트` 버튼, 또는 버튼 우클릭 → 업데이트 확인 |
 | 종료 | 버튼 우클릭 → 종료 (다음 로그인 때 다시 켜짐) |
 
-할 일은 `~/Library/Application Support/FloatingTodo/todos.json` 에 저장됩니다.
+할 일은 `~/Library/Application Support/FloatingTodo/todos.json`, 달력 할 일은 같은 폴더의 `calendar.json` 에 저장됩니다.
+달력은 오늘을 포함한 최근 7일과 앞으로의 날만 보관합니다. 그보다 오래된 날은 자동으로 지워지고 달력에서도 고를 수 없습니다.
 
 ## 업데이트
 
@@ -84,10 +87,11 @@ Xcode 에서 `Package.swift` 를 열면 파일 사이 이동·자동 완성이 �
 Sources/
 ├── main.swift                  앱 시작
 ├── App/AppDelegate.swift       버튼·패널 창 관리, 우클릭 메뉴
-├── Model/                      데이터 (할 일·체크포인트, 저장, 퍼스널 컬러)
+├── Model/                      데이터 (할 일·체크포인트, 달력 날짜 규칙, 저장, 설정)
 ├── Update/Updater.swift        업데이트 확인·설치
 ├── Views/
-│   ├── Panel/                  할 일 패널, 카드, 설정, 업데이트·되돌리기 안내
+│   ├── Panel/                  패널(탭), 할 일 카드, 설정, 업데이트·되돌리기 안내
+│   ├── Calendar/               달력 탭 (한 달 달력 + 그날의 할 일)
 │   ├── Editor/                 여러 줄 입력칸 (NSTextView)
 │   └── Components/             공통 버튼, 끌어서 순서 바꾸는 목록, 뷰 상태(@ViewState), Liquid Glass 배경
 └── Windows/                    떠 있는 창, 동그란 버튼, 크기 조절 손잡이

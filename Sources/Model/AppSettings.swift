@@ -23,6 +23,11 @@ extension Color {
     }
 }
 
+/// 패널 위쪽 탭
+enum PanelTab: String {
+    case todo, calendar
+}
+
 @MainActor
 final class AppSettings: ObservableObject {
     static let presets = ["#0A84FF", "#5E5CE6", "#BF5AF2", "#FF375F", "#FF9F0A", "#30D158", "#40C8E0"]
@@ -32,8 +37,18 @@ final class AppSettings: ObservableObject {
         didSet { UserDefaults.standard.set(colorHex, forKey: colorKey) }
     }
 
+    /// 마지막으로 보던 탭 (다음에 열 때도 그대로)
+    @Published var tab: PanelTab {
+        didSet { UserDefaults.standard.set(tab.rawValue, forKey: tabKey) }
+    }
+    private let tabKey = "panelTab"
+
+    /// 달력 탭에서 고른 날 (저장하지 않음. 날짜가 바뀐 뒤 패널을 열면 오늘로 돌아감)
+    @Published var selectedDay = Day.today
+
     init() {
         colorHex = UserDefaults.standard.string(forKey: colorKey) ?? "#0A84FF"
+        tab = UserDefaults.standard.string(forKey: tabKey).flatMap(PanelTab.init(rawValue:)) ?? .todo
     }
 
     var color: Color { Color(hex: colorHex) ?? .blue }

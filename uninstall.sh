@@ -18,5 +18,5 @@ if [ "${1:-}" = "--purge" ]; then
   defaults delete FloatingTodo 2>/dev/null
   echo "FloatingTodo 와 할 일 데이터를 모두 삭제했어요."
 else
-  echo "FloatingTodo 를 삭제했어요. 할 일 데이터는 $APPDIR/todos.json 에 남아 있어요."
+  echo "FloatingTodo 를 삭제했어요. 할 일 데이터는 $APPDIR 에 남아 있어요. (todos.json, calendar.json)"
 fi
